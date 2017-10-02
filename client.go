@@ -59,12 +59,13 @@ type recordList struct {
 // to Airtable if the number of matching records exceeds the 100 record limit for any one API request.
 func (c *Client) ListRecords(tableName string, recordsHolder interface{}, listParams ...ListParameters) error {
 	endpoint := fmt.Sprintf("%s/%s/%s?", apiBaseURL, c.baseID, tableName)
+	var offsetHash = ""
 	if len(listParams) != 0 {
 		listParameters := listParams[len(listParams)-1]
+		offsetHash = listParameters.Offset
 		endpoint = fmt.Sprintf("%s%s", endpoint, listParameters.URLEncode())
 	}
 	tempRecordsHolder := reflect.New(reflect.TypeOf(recordsHolder).Elem()).Interface()
-	offsetHash := ""
 	// We pass tempRecordsHolder here as a perf optimization so that we do not need to re-derive
 	// the tempRecord for each request using reflection, but can instead reuse a single one. Since
 	// tempRecordsHolder is always a slice, it's contents will be entirely replaced with each
@@ -93,24 +94,24 @@ func (c *Client) recursivelyListRecordsAtOffset(endpoint string, offsetHash stri
 	}
 
 	// Marshall inner "Records" array of records back to JSON
-	jsonRecords, err := json.Marshal(rl.Records)
+	jsonRecords, err := json.Marshal(rl)
 	if err != nil {
 		return err
 	}
 
 	// Unmarshall once more into the supplied tempRecordsHolder, an array of records
-	if err = json.Unmarshal(jsonRecords, tempRecordsHolder); err != nil {
+	if err = json.Unmarshal(jsonRecords, finalRecordsHolder); err != nil {
 		return err
 	}
 
 	// Append the records returned from this request to the final list of records using reflection
-	finalRecordsHolderVal := reflect.ValueOf(finalRecordsHolder).Elem()
-	tempRecordsHolderVal := reflect.ValueOf(tempRecordsHolder).Elem()
-	finalRecordsHolderVal.Set(reflect.AppendSlice(finalRecordsHolderVal, tempRecordsHolderVal))
+	// finalRecordsHolderVal := reflect.ValueOf(finalRecordsHolder).Elem()
+	// tempRecordsHolderVal := reflect.ValueOf(tempRecordsHolder).Elem()
+	// finalRecordsHolderVal.Set(reflect.AppendSlice(finalRecordsHolderVal, tempRecordsHolderVal))
 
-	if rl.Offset != "" {
-		return c.recursivelyListRecordsAtOffset(endpoint, rl.Offset, tempRecordsHolder, finalRecordsHolder)
-	}
+	// if rl.Offset != "" {
+	// 	return c.recursivelyListRecordsAtOffset(endpoint, rl.Offset, tempRecordsHolder, finalRecordsHolder)
+	// }
 	return nil
 }
 
@@ -239,6 +240,8 @@ type ListParameters struct {
 	Fields          []string
 	FilterByFormula string
 	MaxRecords      int
+	PageSize        int
+	Offset          string
 	Sort            []SortParameter
 	View            string
 }
@@ -256,6 +259,9 @@ func (l *ListParameters) URLEncode() string {
 	}
 	if l.MaxRecords != 0 {
 		v.Add("maxRecords", strconv.Itoa(l.MaxRecords))
+	}
+	if l.PageSize != 0 {
+		v.Add("pageSize", strconv.Itoa(l.PageSize))
 	}
 	if len(l.Sort) != 0 {
 		for i, sort := range l.Sort {
